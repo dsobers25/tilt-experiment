@@ -2,7 +2,7 @@ import React from 'react';
 import Svg, { Circle, Path, Ellipse, Polygon } from 'react-native-svg';
 
 // Rose - Red/Pink
-export const Rose = ({ size = 50 }) => (
+export const Rose = ({ size = 30 }) => (
   <Svg width={size} height={size} viewBox="0 0 30 30">
     {/* Petals */}
     <Circle cx="15" cy="12" r="4" fill="#FF1744" opacity="0.8" />
@@ -19,7 +19,7 @@ export const Rose = ({ size = 50 }) => (
 );
 
 // Sunflower - Yellow/Orange
-export const Sunflower = ({ size = 50 }) => (
+export const Sunflower = ({ size = 30 }) => (
   <Svg width={size} height={size} viewBox="0 0 30 30">
     {/* Outer petals */}
     <Ellipse cx="15" cy="8" rx="2" ry="6" fill="#FFC107" />
@@ -40,7 +40,7 @@ export const Sunflower = ({ size = 50 }) => (
 );
 
 // Tulip - Purple/Magenta
-export const Tulip = ({ size = 50 }) => (
+export const Tulip = ({ size = 30 }) => (
   <Svg width={size} height={size} viewBox="0 0 30 30">
     {/* Petals */}
     <Path d="M15 8 C12 8, 9 12, 12 18 L18 18 C21 12, 18 8, 15 8 Z" fill="#9C27B0" />
@@ -54,7 +54,7 @@ export const Tulip = ({ size = 50 }) => (
 );
 
 // Daisy - White/Yellow
-export const Daisy = ({ size = 50 }) => (
+export const Daisy = ({ size = 30 }) => (
   <Svg width={size} height={size} viewBox="0 0 30 30">
     {/* White petals */}
     <Ellipse cx="15" cy="7" rx="1.5" ry="5" fill="#FFFFFF" />
@@ -74,7 +74,7 @@ export const Daisy = ({ size = 50 }) => (
 );
 
 // Cherry Blossom - Pink/White
-export const CherryBlossom = ({ size = 50 }) => (
+export const CherryBlossom = ({ size = 30 }) => (
   <Svg width={size} height={size} viewBox="0 0 30 30">
     {/* 5 rounded petals */}
     <Path d="M15 9 C13 7, 9 7, 9 11 C9 15, 13 13, 15 15" fill="#FCE4EC" />

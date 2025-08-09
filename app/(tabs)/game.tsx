@@ -7,6 +7,7 @@ import {
   Platform,
   PanResponder,
   Alert,
+  Image,
 } from 'react-native';
 import { Rose, Sunflower, Tulip, Daisy, CherryBlossom, flowerTypes, getRandomFlower } from '@/components/ui/Flowers';
 import Svg, { Path, Circle, Ellipse } from 'react-native-svg';
@@ -48,15 +49,61 @@ const Catfish = ({ size = 50 }) => (
 );
 
 export default function SlideGameScreen() {
-  const [score, setScore] = useState(0);
   const [gameObjects, setGameObjects] = useState([]);
-  const [isGameRunning, setIsGameRunning] = useState(true);
-  const [currentPlayerX, setCurrentPlayerX] = useState(screenWidth / 2 - 25);
+  const [isGameRunning, setIsGameRunning] = useState(false);
+  const [gameStarted, setGameStarted] = useState(false);
+  const [currentPlayerX, setCurrentPlayerX] = useState(screenWidth / 2 - 60); // Adjusted for 120px box (half of 120)
   const [catfishCount, setCatfishCount] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(30);
+  const [flowersCollected, setFlowersCollected] = useState(0);
+  const [flowersToImposter, setFlowersToImposter] = useState(0);
+  const [flowersToArtist, setFlowersToArtist] = useState(0);
   
-  const playerPosition = useRef(new Animated.Value(screenWidth / 2 - 25)).current;
+  // Artist names - you can make this dynamic later
+  const realArtist = "Kendrick Lamar";
+  const fakeArtist = "Kendrick Kumar";
+  
+  const playerPosition = useRef(new Animated.Value(screenWidth / 2 - 60)).current; // Adjusted for 120px box
   const gameLoop = useRef(null);
+  const timerRef = useRef(null);
   const objectId = useRef(0);
+
+  // Initial game prompt
+  useEffect(() => {
+    if (!gameStarted) {
+      showInitialPrompt();
+    }
+  }, [gameStarted]);
+
+  const showInitialPrompt = () => {
+    Alert.alert(
+      'Give Flowers to Your Inspiration',
+      `Ready to collect flowers for ${realArtist}?\n\nCollect flowers but avoid catfish - they'll give your flowers to ${fakeArtist} the impersonator!\n\nYou need to keep more flowers than you lose to win.`,
+      [
+        { 
+          text: 'Not Ready', 
+          onPress: () => {
+            // Stay on the same screen, show prompt again after a delay
+            setTimeout(() => {
+              showInitialPrompt();
+            }, 500);
+          },
+          style: 'cancel'
+        },
+        { 
+          text: "Let's Play!", 
+          onPress: startGame 
+        }
+      ],
+      { cancelable: false }
+    );
+  };
+
+  const startGame = () => {
+    setGameStarted(true);
+    setIsGameRunning(true);
+    resetGame();
+  };
 
   // Create pan responder for touch controls
   const panResponder = useRef(
@@ -64,30 +111,32 @@ export default function SlideGameScreen() {
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
       onPanResponderMove: (evt, gestureState) => {
-        // Calculate new position based on touch location
-        const newX = Math.max(0, Math.min(screenWidth - 50, evt.nativeEvent.pageX - 25));
+        // Calculate new position based on touch location (adjusted for 120px width)
+        const newX = Math.max(0, Math.min(screenWidth - 120, evt.nativeEvent.pageX - 60));
         playerPosition.setValue(newX);
         setCurrentPlayerX(newX);
       },
     })
   ).current;
 
-  // Game object creation - USING FLOWERS AND CATFISH
+  // Game object creation
   const createGameObject = () => {
     const id = objectId.current++;
-    const startX = Math.random() * (screenWidth - 30);
+    const isCatfish = Math.random() < 0.15;
+    const objectSize = isCatfish ? 50 : 30; // Catfish are bigger
+    const startX = Math.random() * (screenWidth - objectSize);
     const speed = 2 + Math.random() * 3;
     
-    // 15% chance to spawn a catfish instead of a flower
-    const isCatfish = Math.random() < 0.15;
+    // 15% chance to spawn a catfish
     
     if (isCatfish) {
       return {
         id,
         x: startX,
-        y: -30,
+        y: -objectSize,
         speed,
         type: 'catfish',
+        size: objectSize,
         collected: false,
       };
     } else {
@@ -95,28 +144,101 @@ export default function SlideGameScreen() {
       return {
         id,
         x: startX,
-        y: -30,
+        y: -objectSize,
         speed,
         type: 'flower',
+        size: objectSize,
         flowerType,
         collected: false,
       };
     }
   };
 
-  // Check for game over
+  // Timer countdown
+  useEffect(() => {
+    if (isGameRunning && timeLeft > 0) {
+      timerRef.current = setTimeout(() => {
+        setTimeLeft(timeLeft - 1);
+      }, 1000);
+    } else if (timeLeft === 0 && isGameRunning) {
+      endGame();
+    }
+
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
+    };
+  }, [timeLeft, isGameRunning]);
+
+  // Check for automatic loss (3 catfish)
   useEffect(() => {
     if (catfishCount >= 3 && isGameRunning) {
-      setIsGameRunning(false);
-      Alert.alert(
-        'Game Over!',
-        `You caught 3 catfish! Final Score: ${score}`,
-        [
-          { text: 'Play Again', onPress: resetGame }
-        ]
-      );
+      endGame();
     }
-  }, [catfishCount, score, isGameRunning]);
+  }, [catfishCount, isGameRunning]);
+
+  // Calculate flowers distribution when catfish is caught
+  const handleCatfishCaught = () => {
+    const newCatfishCount = catfishCount + 1;
+    setCatfishCount(newCatfishCount);
+    
+    // Calculate how many flowers go to imposter (1/3 of total collected)
+    const flowersLost = Math.floor(flowersCollected / 3);
+    setFlowersToImposter(prev => prev + flowersLost);
+  };
+
+  // Update flowers to artist calculation
+  useEffect(() => {
+    setFlowersToArtist(flowersCollected - flowersToImposter);
+  }, [flowersCollected, flowersToImposter]);
+
+  const endGame = () => {
+    setIsGameRunning(false);
+    
+    // Determine win/lose
+    const didWin = flowersToArtist > flowersToImposter && catfishCount < 3;
+    
+    let title, message;
+    
+    if (catfishCount >= 3) {
+      title = '💔 Too Many Imposters!';
+      message = `You caught 3 catfish!\n\n${fakeArtist} stole all your flowers!\n\nFlowers collected: ${flowersCollected}\nFlowers to ${realArtist}: 0\nFlowers to ${fakeArtist}: ${flowersCollected}`;
+    } else if (didWin) {
+      title = '🌸 Victory! 🌸';
+      message = `You gave more flowers to ${realArtist}!\n\nFlowers collected: ${flowersCollected}\nFlowers to ${realArtist}: ${flowersToArtist}\nFlowers to ${fakeArtist}: ${flowersToImposter}`;
+    } else {
+      title = '😔 The Imposter Won';
+      message = `${fakeArtist} got more flowers!\n\nFlowers collected: ${flowersCollected}\nFlowers to ${realArtist}: ${flowersToArtist}\nFlowers to ${fakeArtist}: ${flowersToImposter}`;
+    }
+    
+    Alert.alert(
+      title,
+      message,
+      [
+        { 
+          text: 'Done', 
+          onPress: () => {
+            // Reset to initial state and show prompt again
+            setGameStarted(false);
+            resetGame();
+            setTimeout(() => {
+              showInitialPrompt();
+            }, 500);
+          },
+          style: 'cancel'
+        },
+        { 
+          text: 'Play Again', 
+          onPress: () => {
+            resetGame();
+            setIsGameRunning(true);
+          }
+        }
+      ],
+      { cancelable: false }
+    );
+  };
 
   // Game loop
   useEffect(() => {
@@ -126,7 +248,7 @@ export default function SlideGameScreen() {
       setGameObjects(prevObjects => {
         let newObjects = [...prevObjects];
         
-        // Create new flowers with random probability
+        // Create new objects
         if (Math.random() < 0.03) {
           newObjects.push(createGameObject());
         }
@@ -135,39 +257,39 @@ export default function SlideGameScreen() {
         newObjects = newObjects.map(obj => {
           const updatedObj = { ...obj, y: obj.y + obj.speed };
           
-          // Player position from bottom
+          // Player position from bottom (adjusted for 120px height)
           const playerBottom = 100;
-          const playerTop = screenHeight - playerBottom - 50;
+          const playerTop = screenHeight - playerBottom - 120;
           
           // Collision boundaries
-          const flowerBottom = updatedObj.y + 30;
-          const flowerTop = updatedObj.y;
-          const flowerLeft = updatedObj.x;
-          const flowerRight = updatedObj.x + 30;
+          const objectSize = obj.size || 30;
+          const objectBottom = updatedObj.y + objectSize;
+          const objectTop = updatedObj.y;
+          const objectLeft = updatedObj.x;
+          const objectRight = updatedObj.x + objectSize;
           
           const playerLeft = currentPlayerX;
-          const playerRight = currentPlayerX + 50;
+          const playerRight = currentPlayerX + 120; // Adjusted for 120px width
           
-          // Check collision with generous buffer
+          // Check collision (adjusted buffer for 120px player)
           if (!obj.collected &&
-              flowerRight > playerLeft - 10 &&
-              flowerLeft < playerRight + 10 &&
-              flowerBottom > playerTop - 10 &&
-              flowerTop < playerTop + 60) {
+              objectRight > playerLeft - 10 &&
+              objectLeft < playerRight + 10 &&
+              objectBottom > playerTop - 10 &&
+              objectTop < playerTop + 130) { // 120px height + 10px buffer
             updatedObj.collected = true;
             
-            // Check if it's a catfish or flower
             if (obj.type === 'catfish') {
-              setCatfishCount(prev => prev + 1);
+              handleCatfishCaught();
             } else {
-              setScore(prev => prev + 10);
+              setFlowersCollected(prev => prev + 1);
             }
           }
           
           return updatedObj;
         });
 
-        // Remove collected flowers and flowers that went off screen
+        // Remove collected objects and objects off screen
         return newObjects.filter(obj => !obj.collected && obj.y < screenHeight + 50);
       });
     }, 16);
@@ -177,22 +299,31 @@ export default function SlideGameScreen() {
         clearInterval(gameLoop.current);
       }
     };
-  }, [isGameRunning, currentPlayerX]);
+  }, [isGameRunning, currentPlayerX, flowersCollected, catfishCount]);
 
   const resetGame = () => {
-    setScore(0);
     setGameObjects([]);
     setCatfishCount(0);
-    setIsGameRunning(true);
-    const initialX = screenWidth / 2 - 25;
+    setFlowersCollected(0);
+    setFlowersToImposter(0);
+    setFlowersToArtist(0);
+    setTimeLeft(30);
+    const initialX = screenWidth / 2 - 60; // Adjusted for 120px box (half of 120)
     playerPosition.setValue(initialX);
     setCurrentPlayerX(initialX);
   };
 
+  // Create array for catfish display
+  const catfishArray = Array.from({ length: catfishCount }, (_, i) => i);
+
+  if (!gameStarted) {
+    return <ThemedView style={styles.container} />;
+  }
+
   return (
     <ThemedView style={styles.container}>
       <View style={styles.gameArea} {...panResponder.panHandlers}>
-        {/* Falling Flowers and Catfish */}
+        {/* Falling objects */}
         {gameObjects.map(obj => {
           if (obj.type === 'catfish') {
             return (
@@ -206,7 +337,7 @@ export default function SlideGameScreen() {
                   },
                 ]}
               >
-                <Catfish size={30} />
+                <Catfish size={50} />
               </View>
             );
           } else {
@@ -222,13 +353,13 @@ export default function SlideGameScreen() {
                   },
                 ]}
               >
-                <FlowerComponent size={30} />
+                <FlowerComponent size={50} />
               </View>
             );
           }
         })}
 
-        {/* Player square */}
+        {/* Player square with Kendrick image */}
         <Animated.View
           style={[
             styles.player,
@@ -238,21 +369,54 @@ export default function SlideGameScreen() {
               ],
             },
           ]}
-        />
+        >
+          <Image 
+            source={require('@/assets/images/kdot_pic_00.jpg')}
+            style={styles.playerImage}
+            resizeMode="cover"
+          />
+        </Animated.View>
       </View>
 
-      <ThemedView style={styles.uiContainer}>
-        <ThemedText type="title" style={styles.score}>
-          Score: {score}
+      {/* Top left UI - Timer and Catfish */}
+      <View style={styles.topLeftUI}>
+        <ThemedText style={styles.timer}>
+          Time: {timeLeft}s
         </ThemedText>
-        <ThemedText style={styles.catfishWarning}>
-          Catfish: {catfishCount}/3 ⚠️
+        <View style={styles.catfishDisplay}>
+          {catfishArray.map(index => (
+            <View key={index} style={styles.catfishIcon}>
+              <Catfish size={35} />
+            </View>
+          ))}
+        </View>
+      </View>
+
+      {/* Center UI - Flower distribution */}
+      <ThemedView style={styles.centerUI}>
+        <ThemedText style={styles.artistName}>
+          For: {realArtist}
         </ThemedText>
-        <ThemedText style={styles.instructions}>
-          Touch anywhere and drag to move the blue square!
-        </ThemedText>
-        <ThemedText style={styles.instructions}>
-          Collect flowers (+10 pts) but avoid catfish!
+        <View style={styles.scoreContainer}>
+          <View style={styles.scoreBox}>
+            <ThemedText style={[styles.scoreLabel, { color: '#4CAF50' }]}>
+              Real Artist
+            </ThemedText>
+            <ThemedText style={[styles.scoreValue, { color: '#4CAF50' }]}>
+              {flowersToArtist} 🌸
+            </ThemedText>
+          </View>
+          <View style={styles.scoreBox}>
+            <ThemedText style={[styles.scoreLabel, { color: '#FF6B6B' }]}>
+              {fakeArtist}
+            </ThemedText>
+            <ThemedText style={[styles.scoreValue, { color: '#FF6B6B' }]}>
+              {flowersToImposter} 🌸
+            </ThemedText>
+          </View>
+        </View>
+        <ThemedText style={styles.totalFlowers}>
+          Total Collected: {flowersCollected}
         </ThemedText>
       </ThemedView>
     </ThemedView>
@@ -270,10 +434,10 @@ const styles = StyleSheet.create({
   },
   player: {
     position: 'absolute',
-    width: 50,
-    height: 50,
+    width: 120,
+    height: 120,
     backgroundColor: '#00aaff',
-    borderRadius: 8,
+    borderRadius: 12,
     shadowColor: '#00aaff',
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.8,
@@ -281,39 +445,77 @@ const styles = StyleSheet.create({
     elevation: 5,
     bottom: 100,
     left: 0,
+    overflow: 'hidden', // This ensures the image stays within the rounded corners
+  },
+  playerImage: {
+    width: '100%',
+    height: '100%',
   },
   gameObject: {
     position: 'absolute',
     width: 30,
     height: 30,
   },
-  uiContainer: {
+  topLeftUI: {
     position: 'absolute',
     top: Platform.select({ ios: 60, android: 40, default: 50 }),
     left: 20,
-    right: 20,
+    zIndex: 1000,
+  },
+  timer: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 10,
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: -1, height: 1 },
+    textShadowRadius: 10,
+  },
+  catfishDisplay: {
+    flexDirection: 'row',
+    gap: 5,
+  },
+  catfishIcon: {
+    opacity: 0.9,
+  },
+  centerUI: {
+    position: 'absolute',
+    top: Platform.select({ ios: 50, android: 30, default: 40 }),
+    left: 0,
+    right: 0,
+    alignItems: 'center',
     zIndex: 1000,
     backgroundColor: 'transparent',
   },
-  score: {
-    textAlign: 'center',
-    marginBottom: 10,
-    color: '#FFFFFF',
-    fontSize: 24,
-    fontWeight: 'bold',
-  },
-  catfishWarning: {
-    textAlign: 'center',
-    marginBottom: 10,
-    color: '#FF6B6B',
+  artistName: {
     fontSize: 18,
     fontWeight: 'bold',
-  },
-  instructions: {
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 5,
     color: '#FFFFFF',
-    opacity: 0.9,
+    marginBottom: 10,
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: -1, height: 1 },
+    textShadowRadius: 10,
+  },
+  scoreContainer: {
+    flexDirection: 'row',
+    gap: 30,
+    marginBottom: 10,
+  },
+  scoreBox: {
+    alignItems: 'center',
+  },
+  scoreLabel: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  scoreValue: {
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  totalFlowers: {
+    fontSize: 14,
+    color: '#FFFFFF',
+    opacity: 0.8,
   },
 });
