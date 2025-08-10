@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Dimensions,
@@ -8,9 +8,12 @@ import {
   PanResponder,
   Alert,
   Image,
+  TouchableOpacity,
 } from 'react-native';
 import { Rose, Sunflower, Tulip, Daisy, CherryBlossom, flowerTypes, getRandomFlower } from '@/components/ui/Flowers';
 import Svg, { Path, Circle, Ellipse } from 'react-native-svg';
+import { Ionicons } from '@expo/vector-icons';
+import { router, useFocusEffect } from 'expo-router';
 
 import { ThemedText } from '../../components/ThemedText';
 import { ThemedView } from '../../components/ThemedView';
@@ -51,6 +54,7 @@ const Catfish = ({ size = 50 }) => (
 export default function SlideGameScreen() {
   const [gameObjects, setGameObjects] = useState([]);
   const [isGameRunning, setIsGameRunning] = useState(false);
+  const [isGamePaused, setIsGamePaused] = useState(false);
   const [gameStarted, setGameStarted] = useState(false);
   const [currentPlayerX, setCurrentPlayerX] = useState(screenWidth / 2 - 60); // Adjusted for 120px box (half of 120)
   const [catfishCount, setCatfishCount] = useState(0);
@@ -68,41 +72,65 @@ export default function SlideGameScreen() {
   const timerRef = useRef(null);
   const objectId = useRef(0);
 
-  // Initial game prompt
-  useEffect(() => {
-    if (!gameStarted) {
-      showInitialPrompt();
-    }
-  }, [gameStarted]);
-
-  const showInitialPrompt = () => {
-    Alert.alert(
-      'Give Flowers to Your Inspiration',
-      `Ready to collect flowers for ${realArtist}?\n\nCollect flowers but avoid catfish - they'll give your flowers to ${fakeArtist} the impersonator!\n\nYou need to keep more flowers than you lose to win.`,
-      [
-        { 
-          text: 'Not Ready', 
-          onPress: () => {
-            // Stay on the same screen, show prompt again after a delay
-            setTimeout(() => {
-              showInitialPrompt();
-            }, 500);
-          },
-          style: 'cancel'
-        },
-        { 
-          text: "Let's Play!", 
-          onPress: startGame 
+  // Initial game setup - start only when screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      // Reset and start the game when screen comes into focus
+      setGameStarted(true);
+      setIsGamePaused(false); // Make sure game is not paused
+      setIsGameRunning(true);
+      resetGame();
+      
+      // Cleanup when screen loses focus
+      return () => {
+        // Clear timers when leaving screen
+        if (timerRef.current) {
+          clearTimeout(timerRef.current);
+          timerRef.current = null;
         }
-      ],
-      { cancelable: false }
-    );
+        if (gameLoop.current) {
+          clearInterval(gameLoop.current);
+          gameLoop.current = null;
+        }
+        // Stop game when leaving screen
+        setIsGameRunning(false);
+        setGameObjects([]); // Clear objects when leaving
+      };
+    }, [])
+  );
+
+  const continueGame = () => {
+    setTimeLeft(30); // Add 30 more seconds
+    setIsGameRunning(true);
+    setIsGamePaused(false);
   };
 
   const startGame = () => {
     setGameStarted(true);
     setIsGameRunning(true);
     resetGame();
+  };
+
+  // Pause/Resume game
+  const togglePause = () => {
+    if (isGamePaused) {
+      setIsGamePaused(false);
+      setIsGameRunning(true);
+    } else {
+      setIsGamePaused(true);
+      setIsGameRunning(false);
+      Alert.alert(
+        'Game Paused',
+        'Take a break!',
+        [
+          { text: 'Resume', onPress: () => {
+            setIsGamePaused(false);
+            setIsGameRunning(true);
+          }}
+        ],
+        { cancelable: false }
+      );
+    }
   };
 
   // Create pan responder for touch controls
@@ -123,7 +151,7 @@ export default function SlideGameScreen() {
   const createGameObject = () => {
     const id = objectId.current++;
     const isCatfish = Math.random() < 0.15;
-    const objectSize = isCatfish ? 50 : 30; // Catfish are bigger
+    const objectSize = 50; // Both flowers and catfish are now 50
     const startX = Math.random() * (screenWidth - objectSize);
     const speed = 2 + Math.random() * 3;
     
@@ -156,11 +184,11 @@ export default function SlideGameScreen() {
 
   // Timer countdown
   useEffect(() => {
-    if (isGameRunning && timeLeft > 0) {
+    if (isGameRunning && !isGamePaused && timeLeft > 0) {
       timerRef.current = setTimeout(() => {
         setTimeLeft(timeLeft - 1);
       }, 1000);
-    } else if (timeLeft === 0 && isGameRunning) {
+    } else if (timeLeft === 0 && isGameRunning && !isGamePaused) {
       endGame();
     }
 
@@ -169,7 +197,7 @@ export default function SlideGameScreen() {
         clearTimeout(timerRef.current);
       }
     };
-  }, [timeLeft, isGameRunning]);
+  }, [timeLeft, isGameRunning, isGamePaused]);
 
   // Check for automatic loss (3 catfish)
   useEffect(() => {
@@ -194,7 +222,23 @@ export default function SlideGameScreen() {
   }, [flowersCollected, flowersToImposter]);
 
   const endGame = () => {
+    // Prevent multiple calls
+    if (!isGameRunning) return;
+    
     setIsGameRunning(false);
+    
+    // Clear all falling objects immediately
+    setGameObjects([]);
+    
+    // Clear any pending timers
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    if (gameLoop.current) {
+      clearInterval(gameLoop.current);
+      gameLoop.current = null;
+    }
     
     // Determine win/lose
     const didWin = flowersToArtist > flowersToImposter && catfishCount < 3;
@@ -217,16 +261,18 @@ export default function SlideGameScreen() {
       message,
       [
         { 
-          text: 'Done', 
+          text: 'Home', 
           onPress: () => {
-            // Reset to initial state and show prompt again
-            setGameStarted(false);
-            resetGame();
-            setTimeout(() => {
-              showInitialPrompt();
-            }, 500);
+            // Navigate back to home screen
+            router.push('/(tabs)/');
           },
           style: 'cancel'
+        },
+        { 
+          text: 'Continue (+30s)', 
+          onPress: () => {
+            continueGame();
+          }
         },
         { 
           text: 'Play Again', 
@@ -242,7 +288,7 @@ export default function SlideGameScreen() {
 
   // Game loop
   useEffect(() => {
-    if (!isGameRunning) return;
+    if (!isGameRunning || isGamePaused) return;
 
     gameLoop.current = setInterval(() => {
       setGameObjects(prevObjects => {
@@ -299,7 +345,7 @@ export default function SlideGameScreen() {
         clearInterval(gameLoop.current);
       }
     };
-  }, [isGameRunning, currentPlayerX, flowersCollected, catfishCount]);
+  }, [isGameRunning, isGamePaused, currentPlayerX, flowersCollected, catfishCount]);
 
   const resetGame = () => {
     setGameObjects([]);
@@ -308,6 +354,7 @@ export default function SlideGameScreen() {
     setFlowersToImposter(0);
     setFlowersToArtist(0);
     setTimeLeft(30);
+    setIsGamePaused(false); // Ensure game is not paused on reset
     const initialX = screenWidth / 2 - 60; // Adjusted for 120px box (half of 120)
     playerPosition.setValue(initialX);
     setCurrentPlayerX(initialX);
@@ -377,6 +424,19 @@ export default function SlideGameScreen() {
           />
         </Animated.View>
       </View>
+
+      {/* Top right - Pause button */}
+      <TouchableOpacity 
+        style={styles.pauseButton} 
+        onPress={togglePause}
+        disabled={!isGameRunning || isGamePaused}
+      >
+        <Ionicons 
+          name={isGamePaused ? "play" : "pause"} 
+          size={30} 
+          color="#FFFFFF" 
+        />
+      </TouchableOpacity>
 
       {/* Top left UI - Timer and Catfish */}
       <View style={styles.topLeftUI}>
@@ -455,6 +515,18 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: 30,
     height: 30,
+  },
+  pauseButton: {
+    position: 'absolute',
+    top: Platform.select({ ios: 60, android: 40, default: 50 }),
+    right: 20,
+    zIndex: 1001,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 25,
+    width: 50,
+    height: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   topLeftUI: {
     position: 'absolute',

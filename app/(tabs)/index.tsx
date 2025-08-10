@@ -1,75 +1,329 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
-
-import { HelloWave } from '@/components/HelloWave';
-import ParallaxScrollView from '@/components/ParallaxScrollView';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  View,
+  StyleSheet,
+  Dimensions,
+  TouchableOpacity,
+  Platform,
+} from 'react-native';
+import { router } from 'expo-router';
+import { BlurView } from 'expo-blur';
+import { Rose, Sunflower, Tulip, Daisy, CherryBlossom, getRandomFlower } from '@/components/ui/Flowers';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
+import Svg, { Path, Circle, Ellipse } from 'react-native-svg';
+
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 export default function HomeScreen() {
+  const [backgroundObjects, setBackgroundObjects] = useState([]);
+  const animationRef = useRef(null);
+  const objectIdRef = useRef(0);
+
+  // Catfish SVG Component
+  const Catfish = ({ size = 50 }) => (
+    <Svg width={size} height={size} viewBox="0 0 30 30">
+      {/* Main body */}
+      <Ellipse cx="15" cy="15" rx="10" ry="6" fill="#4A5568" />
+      <Ellipse cx="15" cy="15" rx="9" ry="5" fill="#718096" />
+      
+      {/* Tail fin */}
+      <Path d="M5 15 L1 11 L1 19 Z" fill="#2D3748" />
+      
+      {/* Top fin */}
+      <Path d="M15 9 L13 6 L17 6 Z" fill="#2D3748" />
+      
+      {/* Bottom fins */}
+      <Path d="M10 18 L8 20 L11 19 Z" fill="#2D3748" />
+      <Path d="M20 18 L19 19 L22 20 Z" fill="#2D3748" />
+      
+      {/* Whiskers */}
+      <Path d="M24 13 Q28 11 30 12" stroke="#1A202C" strokeWidth="0.5" fill="none" />
+      <Path d="M24 17 Q28 19 30 18" stroke="#1A202C" strokeWidth="0.5" fill="none" />
+      <Path d="M24 15 Q28 15 30 15" stroke="#1A202C" strokeWidth="0.5" fill="none" />
+      
+      {/* Eye */}
+      <Circle cx="21" cy="14" r="1.5" fill="#FFFFFF" />
+      <Circle cx="21.5" cy="14" r="0.8" fill="#000000" />
+      
+      {/* Mouth */}
+      <Path d="M24 16 Q22 17 20 16" stroke="#1A202C" strokeWidth="0.5" fill="none" />
+    </Svg>
+  );
+
+  // Create falling objects (flowers and catfish)
+  useEffect(() => {
+    const createObject = () => {
+      const id = objectIdRef.current++;
+      const startX = Math.random() * screenWidth;
+      const speed = 1 + Math.random() * 2;
+      
+      // 20% chance for catfish, 80% chance for flowers
+      const isCatfish = Math.random() < 0.2;
+      
+      if (isCatfish) {
+        return {
+          id,
+          x: startX,
+          y: -50,
+          speed,
+          type: 'catfish',
+          rotation: Math.random() * 360,
+        };
+      } else {
+        const flowerType = getRandomFlower();
+        return {
+          id,
+          x: startX,
+          y: -50,
+          speed,
+          type: 'flower',
+          flowerType,
+          rotation: Math.random() * 360,
+        };
+      }
+    };
+
+    // Animation loop
+    animationRef.current = setInterval(() => {
+      setBackgroundObjects(prev => {
+        let objects = [...prev];
+        
+        // Add new object randomly
+        if (Math.random() < 0.05) {
+          objects.push(createObject());
+        }
+        
+        // Update positions
+        objects = objects.map(obj => ({
+          ...obj,
+          y: obj.y + obj.speed,
+          rotation: obj.rotation + 1,
+        }));
+        
+        // Remove objects that went off screen
+        return objects.filter(obj => obj.y < screenHeight + 50);
+      });
+    }, 16);
+
+    return () => {
+      if (animationRef.current) {
+        clearInterval(animationRef.current);
+      }
+    };
+  }, []);
+
+  const startGame = () => {
+    router.push('/(tabs)/game');
+  };
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start today</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+    <ThemedView style={styles.container}>
+      {/* Falling objects background */}
+      <View style={styles.backgroundContainer}>
+        {backgroundObjects.map(obj => {
+          if (obj.type === 'catfish') {
+            return (
+              <View
+                key={obj.id}
+                style={[
+                  styles.backgroundObject,
+                  {
+                    left: obj.x,
+                    top: obj.y,
+                    transform: [{ rotate: `${obj.rotation}deg` }],
+                  },
+                ]}
+              >
+                <Catfish size={80} />
+              </View>
+            );
+          } else {
+            const FlowerComponent = obj.flowerType.component;
+            return (
+              <View
+                key={obj.id}
+                style={[
+                  styles.backgroundObject,
+                  {
+                    left: obj.x,
+                    top: obj.y,
+                    transform: [{ rotate: `${obj.rotation}deg` }],
+                  },
+                ]}
+              >
+                <FlowerComponent size={80} />
+              </View>
+            );
+          }
+        })}
+      </View>
+
+      {/* Blur overlay */}
+      <BlurView intensity={20} style={styles.blurOverlay} tint="dark" />
+
+      {/* Main content */}
+      <View style={styles.contentContainer}>
+        <View style={styles.titleSection}>
+          <ThemedText style={styles.gameTitle}>Flower Giver</ThemedText>
+          <ThemedText style={styles.subtitle}>Give flowers to your inspiration</ThemedText>
+        </View>
+
+        <View style={styles.instructionsContainer}>
+          <ThemedText style={styles.instructionTitle}>How to Play</ThemedText>
+          
+          <View style={styles.instructionItem}>
+            <ThemedText style={styles.instructionEmoji}>🌸</ThemedText>
+            <ThemedText style={styles.instructionText}>
+              Collect flowers for artist that inspired you
+            </ThemedText>
+          </View>
+
+          <View style={styles.instructionItem}>
+            <View style={styles.instructionEmoji}>
+              <Catfish size={36} />
+            </View>
+            <ThemedText style={styles.instructionText}>
+              Avoid catfish - they give flowers to imposters!
+            </ThemedText>
+          </View>
+
+          <View style={styles.instructionItem}>
+            <ThemedText style={styles.instructionEmoji}>⏱️</ThemedText>
+            <ThemedText style={styles.instructionText}>
+              You have 30 seconds to collect flowers
+            </ThemedText>
+          </View>
+
+          <View style={styles.instructionItem}>
+            <ThemedText style={styles.instructionEmoji}>🏆</ThemedText>
+            <ThemedText style={styles.instructionText}>
+              Win by giving more flowers to the real artist
+            </ThemedText>
+          </View>
+
+          <ThemedText style={styles.warningText}>
+            Catch 3 catfish = Game Over!
+          </ThemedText>
+        </View>
+
+        <TouchableOpacity style={styles.playButton} onPress={startGame}>
+          <ThemedText style={styles.playButtonText}>Play Game</ThemedText>
+        </TouchableOpacity>
+      </View>
+    </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
+  container: {
+    flex: 1,
+    backgroundColor: '#001122',
+  },
+  backgroundContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  backgroundObject: {
+    position: 'absolute',
+    opacity: 0.5,
+  },
+  blurOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  contentContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20, // Reduced from 30 to give more space
+    paddingTop: Platform.select({ ios: 80, android: 60, default: 60 }), // Increased padding
+    paddingBottom: 20, // Added bottom padding
+  },
+  titleSection: {
+    alignItems: 'center',
+    marginBottom: 40,
+    paddingHorizontal: 10, // Added padding to title section
+  },
+  gameTitle: {
+    fontSize: 48,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 15, // Increased margin
+    lineHeight: 56, // Added line height for better text spacing
+    textShadowColor: 'rgba(0, 170, 255, 0.5)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 15, // Reduced from 20 to prevent overflow
+    includeFontPadding: false, // Prevents extra padding on Android
+  },
+  subtitle: {
+    fontSize: 18,
+    color: '#FFFFFF',
+    opacity: 0.8,
+    textAlign: 'center',
+    lineHeight: 24, // Added line height
+  },
+  instructionsContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 20,
+    padding: 25,
+    marginBottom: 40,
+    width: '100%',
+    maxWidth: 400,
+  },
+  instructionTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  instructionItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    marginBottom: 15,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  instructionEmoji: {
+    fontSize: 24,
+    marginRight: 15,
+    width: 30,
+    justifyContent: 'center', // Center the catfish icon
+    alignItems: 'center',
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  instructionText: {
+    fontSize: 16,
+    color: '#FFFFFF',
+    flex: 1,
+    opacity: 0.9,
+  },
+  warningText: {
+    fontSize: 22,
+    color: '#FF6B6B',
+    textAlign: 'center',
+    marginTop: 10,
+    fontWeight: 'bold',
+  },
+  playButton: {
+    backgroundColor: '#00aaff',
+    paddingHorizontal: 50,
+    paddingVertical: 18,
+    borderRadius: 30,
+    shadowColor: '#00aaff',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 15,
+    elevation: 10,
+  },
+  playButtonText: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
   },
 });
