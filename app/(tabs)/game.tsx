@@ -405,8 +405,20 @@ export default function SlideGameScreen() {
         }
       ];
       
+      // Determine overall game result for final message
+      let gameResultMessage = '';
+      if (finalCatfishCount >= 3) {
+        gameResultMessage = `💔 GAME LOST - Too many imposters!\n${fakeArtist} stole all your flowers!\n\n`;
+      } else if (finalFlowersToArtist > finalFlowersToImposter) {
+        gameResultMessage = `🎉 VICTORY! You gave more flowers to the real artist!\n${realArtist} got ${finalFlowersToArtist} vs ${fakeArtist}'s ${finalFlowersToImposter}!\n\n`;
+      } else if (finalFlowersToArtist < finalFlowersToImposter) {
+        gameResultMessage = `😔 GAME LOST - The imposter got more flowers!\n${fakeArtist} got ${finalFlowersToImposter} vs ${realArtist}'s ${finalFlowersToArtist}!\n\n`;
+      } else {
+        gameResultMessage = `🤝 TIE GAME!\nBoth ${realArtist} and ${fakeArtist} got ${finalFlowersToArtist} flowers!\n\n`;
+      }
+      
       // Override the message for the final round
-      title = 'Max Rounds Reached\nThank You for Playing! 🌸';
+      title = 'Max Rounds Reached';
       
       // Create round breakdown string
       let roundBreakdown = '';
@@ -414,7 +426,7 @@ export default function SlideGameScreen() {
         roundBreakdown += `Round ${index + 1}: ${formatTime(time)}\n`;
       });
       
-      message = `You've completed all 3 rounds!\n\nFinal Stats:\nFlowers collected: ${finalFlowersCollected}\nFlowers to ${realArtist}: ${finalFlowersToArtist}\nFlowers to ${fakeArtist}: ${finalFlowersToImposter}\n\nTotal Rounds Played: ${currentRoundNumber}\nThis round: ${formatTime(currentRoundTime)}\nTotal time played: ${formatTime(finalTotalTime)}\n\n${roundBreakdown}\nHope you enjoyed the game!`;
+      message = `${gameResultMessage}Thank You for Playing! 🌸\n\nYou've completed all 3 rounds!\n\nFinal Stats:\nFlowers collected: ${finalFlowersCollected}\nFlowers to ${realArtist}: ${finalFlowersToArtist}\nFlowers to ${fakeArtist}: ${finalFlowersToImposter}\n\nTotal Rounds Played: ${currentRoundNumber}\nThis round: ${formatTime(currentRoundTime)}\nTotal time played: ${formatTime(finalTotalTime)}\n\n${roundBreakdown}\nHope you enjoyed the game!`;
     } else {
       const roundNumber = extensionsUsed + 1; // Current round (1, 2, or 3)
       const roundsLeft = 2 - extensionsUsed; // Rounds remaining (2, 1, or 0)
