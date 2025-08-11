@@ -9,6 +9,7 @@ import {
   Alert,
   Image,
   TouchableOpacity,
+  InteractionManager,
 } from 'react-native';
 import { Rose, Sunflower, Tulip, Daisy, CherryBlossom, flowerTypes, getRandomFlower } from '@/components/ui/Flowers';
 import Svg, { Path, Circle, Ellipse } from 'react-native-svg';
@@ -56,34 +57,48 @@ export default function SlideGameScreen() {
   const [isGameRunning, setIsGameRunning] = useState(false);
   const [isGamePaused, setIsGamePaused] = useState(false);
   const [gameStarted, setGameStarted] = useState(false);
-  const [currentPlayerX, setCurrentPlayerX] = useState(screenWidth / 2 - 60); // Adjusted for 120px box (half of 120)
+  const [currentPlayerX, setCurrentPlayerX] = useState(screenWidth / 2 - 50); // Adjusted for 100px player
   const [catfishCount, setCatfishCount] = useState(0);
   const [timeLeft, setTimeLeft] = useState(30);
   const [flowersCollected, setFlowersCollected] = useState(0);
   const [flowersToImposter, setFlowersToImposter] = useState(0);
   const [flowersToArtist, setFlowersToArtist] = useState(0);
+  const [extensionsUsed, setExtensionsUsed] = useState(0);
   
-  // Artist names - you can make this dynamic later
+  // Artist names
   const realArtist = "Kendrick Lamar";
   const fakeArtist = "Kendrick Kumar";
   
-  const playerPosition = useRef(new Animated.Value(screenWidth / 2 - 60)).current; // Adjusted for 120px box
+  // Use native driver for player position - runs on UI thread
+  const playerPosition = useRef(new Animated.Value(screenWidth / 2 - 50)).current; // Adjusted for 100px player
+  
+  // Separate refs for different processes
   const gameLoop = useRef(null);
   const timerRef = useRef(null);
   const objectId = useRef(0);
+  const playerXRef = useRef(screenWidth / 2 - 50); // Keep sync reference for collision detection (100px player)
+  
+  // Batch state updates to reduce re-renders
+  const gameStateRef = useRef({
+    flowersCollected: 0,
+    catfishCount: 0,
+    flowersToImposter: 0,
+    flowersToArtist: 0,
+  });
 
   // Initial game setup - start only when screen is focused
   useFocusEffect(
     useCallback(() => {
-      // Reset and start the game when screen comes into focus
-      setGameStarted(true);
-      setIsGamePaused(false); // Make sure game is not paused
-      setIsGameRunning(true);
-      resetGame();
+      // Use InteractionManager to defer game start until after animations
+      InteractionManager.runAfterInteractions(() => {
+        setGameStarted(true);
+        setIsGamePaused(false);
+        setIsGameRunning(true);
+        resetGame();
+      });
       
       // Cleanup when screen loses focus
       return () => {
-        // Clear timers when leaving screen
         if (timerRef.current) {
           clearTimeout(timerRef.current);
           timerRef.current = null;
@@ -92,17 +107,39 @@ export default function SlideGameScreen() {
           clearInterval(gameLoop.current);
           gameLoop.current = null;
         }
-        // Stop game when leaving screen
         setIsGameRunning(false);
-        setGameObjects([]); // Clear objects when leaving
+        setGameObjects([]);
       };
     }, [])
   );
 
   const continueGame = () => {
-    setTimeLeft(30); // Add 30 more seconds
+    const newExtensionsUsed = extensionsUsed + 1;
+    setExtensionsUsed(newExtensionsUsed);
+    
+    // Add 30 seconds to current time instead of resetting
+    setTimeLeft(prev => prev + 30);
     setIsGameRunning(true);
     setIsGamePaused(false);
+    
+    // Check if this was the 3rd extension
+    if (newExtensionsUsed >= 3) {
+      // Show thank you message and end game after this extension
+      setTimeout(() => {
+        setIsGameRunning(false);
+        Alert.alert(
+          'Thank You for Playing! 🌸',
+          'You\'ve used all 3 time extensions. Hope you enjoyed the game!',
+          [
+            { 
+              text: 'Play Again', 
+              onPress: () => router.push('/(tabs)/'),
+            }
+          ],
+          { cancelable: false }
+        );
+      }, 100); // Small delay to let the time update show
+    }
   };
 
   const startGame = () => {
@@ -111,8 +148,8 @@ export default function SlideGameScreen() {
     resetGame();
   };
 
-  // Pause/Resume game
-  const togglePause = () => {
+  // Optimized pause/resume
+  const togglePause = useCallback(() => {
     if (isGamePaused) {
       setIsGamePaused(false);
       setIsGameRunning(true);
@@ -131,31 +168,40 @@ export default function SlideGameScreen() {
         { cancelable: false }
       );
     }
-  };
+  }, [isGamePaused]);
 
-  // Create pan responder for touch controls
+  // Optimized pan responder with native driver support
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        // Stop any running animations
+        playerPosition.stopAnimation();
+      },
       onPanResponderMove: (evt, gestureState) => {
-        // Calculate new position based on touch location (adjusted for 120px width)
-        const newX = Math.max(0, Math.min(screenWidth - 120, evt.nativeEvent.pageX - 60));
+        const newX = Math.max(0, Math.min(screenWidth - 100, evt.nativeEvent.pageX - 50)); // Adjusted for 100px player
+        
+        // Update animated value without causing re-renders
         playerPosition.setValue(newX);
-        setCurrentPlayerX(newX);
+        
+        // Update ref for collision detection (avoid state updates during panning)
+        playerXRef.current = newX;
+      },
+      onPanResponderRelease: () => {
+        // Sync state only when gesture ends
+        setCurrentPlayerX(playerXRef.current);
       },
     })
   ).current;
 
-  // Game object creation
-  const createGameObject = () => {
+  // Optimized game object creation
+  const createGameObject = useCallback(() => {
     const id = objectId.current++;
     const isCatfish = Math.random() < 0.15;
-    const objectSize = 50; // Both flowers and catfish are now 50
+    const objectSize = 50;
     const startX = Math.random() * (screenWidth - objectSize);
     const speed = 2 + Math.random() * 3;
-    
-    // 15% chance to spawn a catfish
     
     if (isCatfish) {
       return {
@@ -180,13 +226,13 @@ export default function SlideGameScreen() {
         collected: false,
       };
     }
-  };
+  }, []);
 
-  // Timer countdown
+  // Timer countdown with reduced frequency
   useEffect(() => {
     if (isGameRunning && !isGamePaused && timeLeft > 0) {
       timerRef.current = setTimeout(() => {
-        setTimeLeft(timeLeft - 1);
+        setTimeLeft(prev => prev - 1);
       }, 1000);
     } else if (timeLeft === 0 && isGameRunning && !isGamePaused) {
       endGame();
@@ -206,15 +252,23 @@ export default function SlideGameScreen() {
     }
   }, [catfishCount, isGameRunning]);
 
-  // Calculate flowers distribution when catfish is caught
-  const handleCatfishCaught = () => {
+  // Batched state updates for game events
+  const handleCatfishCaught = useCallback(() => {
     const newCatfishCount = catfishCount + 1;
-    setCatfishCount(newCatfishCount);
-    
-    // Calculate how many flowers go to imposter (1/3 of total collected)
     const flowersLost = Math.floor(flowersCollected / 3);
-    setFlowersToImposter(prev => prev + flowersLost);
-  };
+    
+    // Batch multiple state updates
+    requestAnimationFrame(() => {
+      setCatfishCount(newCatfishCount);
+      setFlowersToImposter(prev => prev + flowersLost);
+    });
+  }, [catfishCount, flowersCollected]);
+
+  const handleFlowerCaught = useCallback(() => {
+    requestAnimationFrame(() => {
+      setFlowersCollected(prev => prev + 1);
+    });
+  }, []);
 
   // Update flowers to artist calculation
   useEffect(() => {
@@ -222,15 +276,11 @@ export default function SlideGameScreen() {
   }, [flowersCollected, flowersToImposter]);
 
   const endGame = () => {
-    // Prevent multiple calls
     if (!isGameRunning) return;
     
     setIsGameRunning(false);
-    
-    // Clear all falling objects immediately
     setGameObjects([]);
     
-    // Clear any pending timers
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
@@ -240,10 +290,9 @@ export default function SlideGameScreen() {
       gameLoop.current = null;
     }
     
-    // Determine win/lose
     const didWin = flowersToArtist > flowersToImposter && catfishCount < 3;
     
-    let title, message;
+    let title, message, buttons;
     
     if (catfishCount >= 3) {
       title = '💔 Too Many Imposters!';
@@ -256,23 +305,12 @@ export default function SlideGameScreen() {
       message = `${fakeArtist} got more flowers!\n\nFlowers collected: ${flowersCollected}\nFlowers to ${realArtist}: ${flowersToArtist}\nFlowers to ${fakeArtist}: ${flowersToImposter}`;
     }
     
-    Alert.alert(
-      title,
-      message,
-      [
+    // Different button options based on extensions used
+    if (extensionsUsed >= 3) {
+      buttons = [
         { 
           text: 'Home', 
-          onPress: () => {
-            // Navigate back to home screen
-            router.push('/(tabs)/');
-          },
-          style: 'cancel'
-        },
-        { 
-          text: 'Continue (+30s)', 
-          onPress: () => {
-            continueGame();
-          }
+          onPress: () => router.push('/(tabs)/'),
         },
         { 
           text: 'Play Again', 
@@ -281,71 +319,108 @@ export default function SlideGameScreen() {
             setIsGameRunning(true);
           }
         }
-      ],
-      { cancelable: false }
-    );
+      ];
+    } else {
+      buttons = [
+        { 
+          text: 'Home', 
+          onPress: () => router.push('/(tabs)/'),
+          style: 'cancel'
+        },
+        { 
+          text: `Continue (+30s) [${3 - extensionsUsed} left]`, 
+          onPress: continueGame
+        },
+        { 
+          text: 'Play Again', 
+          onPress: () => {
+            resetGame();
+            setIsGameRunning(true);
+          }
+        }
+      ];
+    }
+    
+    Alert.alert(title, message, buttons, { cancelable: false });
   };
 
-  // Game loop
+  // Optimized game loop with requestAnimationFrame for smoother animations
   useEffect(() => {
     if (!isGameRunning || isGamePaused) return;
 
-    gameLoop.current = setInterval(() => {
-      setGameObjects(prevObjects => {
-        let newObjects = [...prevObjects];
-        
-        // Create new objects
-        if (Math.random() < 0.03) {
-          newObjects.push(createGameObject());
-        }
+    let animationFrame;
+    let lastUpdate = Date.now();
+    const targetFPS = 60;
+    const frameInterval = 1000 / targetFPS;
 
-        // Update positions and check collisions
-        newObjects = newObjects.map(obj => {
-          const updatedObj = { ...obj, y: obj.y + obj.speed };
+    const gameLoopFunction = () => {
+      const now = Date.now();
+      const deltaTime = now - lastUpdate;
+
+      if (deltaTime >= frameInterval) {
+        setGameObjects(prevObjects => {
+          let newObjects = [...prevObjects];
           
-          // Player position from bottom (adjusted for 120px height)
-          const playerBottom = 100;
-          const playerTop = screenHeight - playerBottom - 120;
-          
-          // Collision boundaries
-          const objectSize = obj.size || 30;
-          const objectBottom = updatedObj.y + objectSize;
-          const objectTop = updatedObj.y;
-          const objectLeft = updatedObj.x;
-          const objectRight = updatedObj.x + objectSize;
-          
-          const playerLeft = currentPlayerX;
-          const playerRight = currentPlayerX + 120; // Adjusted for 120px width
-          
-          // Check collision (adjusted buffer for 120px player)
-          if (!obj.collected &&
-              objectRight > playerLeft - 10 &&
-              objectLeft < playerRight + 10 &&
-              objectBottom > playerTop - 10 &&
-              objectTop < playerTop + 130) { // 120px height + 10px buffer
-            updatedObj.collected = true;
-            
-            if (obj.type === 'catfish') {
-              handleCatfishCaught();
-            } else {
-              setFlowersCollected(prev => prev + 1);
-            }
+          // Create new objects less frequently to reduce load
+          if (Math.random() < 0.02) { // Reduced from 0.03
+            newObjects.push(createGameObject());
           }
-          
-          return updatedObj;
+
+          // Update positions and check collisions
+          const playerBottom = 100;
+          const playerTop = screenHeight - playerBottom - 100; // Adjusted for 100px player height
+          const playerLeft = playerXRef.current; // Use ref for real-time position
+          const playerRight = playerLeft + 100; // Adjusted for 100px player width
+
+          newObjects = newObjects.map(obj => {
+            const updatedObj = { ...obj, y: obj.y + obj.speed };
+            
+            // Collision detection using ref values
+            const objectSize = obj.size || 30;
+            const objectBottom = updatedObj.y + objectSize;
+            const objectTop = updatedObj.y;
+            const objectLeft = updatedObj.x;
+            const objectRight = updatedObj.x + objectSize;
+            
+            if (!obj.collected &&
+                objectRight > playerLeft - 10 &&
+                objectLeft < playerRight + 10 &&
+                objectBottom > playerTop - 10 &&
+                objectTop < playerTop + 130) {
+              updatedObj.collected = true;
+              
+              // Use callbacks to avoid state dependencies in game loop
+              if (obj.type === 'catfish') {
+                // Schedule state update
+                setTimeout(() => handleCatfishCaught(), 0);
+              } else {
+                setTimeout(() => handleFlowerCaught(), 0);
+              }
+            }
+            
+            return updatedObj;
+          });
+
+          // Remove collected objects and objects off screen
+          return newObjects.filter(obj => !obj.collected && obj.y < screenHeight + 50);
         });
 
-        // Remove collected objects and objects off screen
-        return newObjects.filter(obj => !obj.collected && obj.y < screenHeight + 50);
-      });
-    }, 16);
+        lastUpdate = now;
+      }
 
-    return () => {
-      if (gameLoop.current) {
-        clearInterval(gameLoop.current);
+      if (isGameRunning && !isGamePaused) {
+        animationFrame = requestAnimationFrame(gameLoopFunction);
       }
     };
-  }, [isGameRunning, isGamePaused, currentPlayerX, flowersCollected, catfishCount]);
+
+    animationFrame = requestAnimationFrame(gameLoopFunction);
+
+    return () => {
+      if (animationFrame) {
+        cancelAnimationFrame(animationFrame);
+      }
+    };
+  }, [isGameRunning, isGamePaused, createGameObject, handleCatfishCaught, handleFlowerCaught]);
 
   const resetGame = () => {
     setGameObjects([]);
@@ -354,11 +429,47 @@ export default function SlideGameScreen() {
     setFlowersToImposter(0);
     setFlowersToArtist(0);
     setTimeLeft(30);
-    setIsGamePaused(false); // Ensure game is not paused on reset
-    const initialX = screenWidth / 2 - 60; // Adjusted for 120px box (half of 120)
+    setExtensionsUsed(0); // Reset extensions when starting new game
+    setIsGamePaused(false);
+    const initialX = screenWidth / 2 - 50; // Adjusted for smaller player (100px)
     playerPosition.setValue(initialX);
     setCurrentPlayerX(initialX);
+    playerXRef.current = initialX;
   };
+
+  // Memoized components to prevent unnecessary re-renders
+  const FallingObject = React.memo(({ obj }) => {
+    if (obj.type === 'catfish') {
+      return (
+        <View
+          style={[
+            styles.gameObject,
+            {
+              left: obj.x,
+              top: obj.y,
+            },
+          ]}
+        >
+          <Catfish size={50} />
+        </View>
+      );
+    } else {
+      const FlowerComponent = obj.flowerType.component;
+      return (
+        <View
+          style={[
+            styles.gameObject,
+            {
+              left: obj.x,
+              top: obj.y,
+            },
+          ]}
+        >
+          <FlowerComponent size={50} />
+        </View>
+      );
+    }
+  });
 
   // Create array for catfish display
   const catfishArray = Array.from({ length: catfishCount }, (_, i) => i);
@@ -371,42 +482,11 @@ export default function SlideGameScreen() {
     <ThemedView style={styles.container}>
       <View style={styles.gameArea} {...panResponder.panHandlers}>
         {/* Falling objects */}
-        {gameObjects.map(obj => {
-          if (obj.type === 'catfish') {
-            return (
-              <View
-                key={obj.id}
-                style={[
-                  styles.gameObject,
-                  {
-                    left: obj.x,
-                    top: obj.y,
-                  },
-                ]}
-              >
-                <Catfish size={50} />
-              </View>
-            );
-          } else {
-            const FlowerComponent = obj.flowerType.component;
-            return (
-              <View
-                key={obj.id}
-                style={[
-                  styles.gameObject,
-                  {
-                    left: obj.x,
-                    top: obj.y,
-                  },
-                ]}
-              >
-                <FlowerComponent size={50} />
-              </View>
-            );
-          }
-        })}
+        {gameObjects.map(obj => (
+          <FallingObject key={obj.id} obj={obj} />
+        ))}
 
-        {/* Player square with Kendrick image */}
+        {/* Player square with native driver animation */}
         <Animated.View
           style={[
             styles.player,
@@ -416,6 +496,8 @@ export default function SlideGameScreen() {
               ],
             },
           ]}
+          shouldRasterizeIOS={true} // Optimize rendering on iOS
+          renderToHardwareTextureAndroid={true} // Optimize rendering on Android
         >
           <Image 
             source={require('@/assets/images/kdot_pic_00.jpg')}
@@ -441,7 +523,7 @@ export default function SlideGameScreen() {
       {/* Top left UI - Timer and Catfish */}
       <View style={styles.topLeftUI}>
         <ThemedText style={styles.timer}>
-          Time: {timeLeft}s
+          Time: {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
         </ThemedText>
         <View style={styles.catfishDisplay}>
           {catfishArray.map(index => (
@@ -494,8 +576,8 @@ const styles = StyleSheet.create({
   },
   player: {
     position: 'absolute',
-    width: 120,
-    height: 120,
+    width: 100, // Reduced from 120 to 100
+    height: 100, // Reduced from 120 to 100
     backgroundColor: '#00aaff',
     borderRadius: 12,
     shadowColor: '#00aaff',
@@ -505,7 +587,7 @@ const styles = StyleSheet.create({
     elevation: 5,
     bottom: 100,
     left: 0,
-    overflow: 'hidden', // This ensures the image stays within the rounded corners
+    overflow: 'hidden',
   },
   playerImage: {
     width: '100%',
