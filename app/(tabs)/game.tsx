@@ -64,6 +64,12 @@ export default function SlideGameScreen() {
   const [flowersToImposter, setFlowersToImposter] = useState(0);
   const [flowersToArtist, setFlowersToArtist] = useState(0);
   const [extensionsUsed, setExtensionsUsed] = useState(0);
+  const [gameStartTime, setGameStartTime] = useState(null);
+  const [roundStartTime, setRoundStartTime] = useState(null);
+  const [totalSessionTime, setTotalSessionTime] = useState(0);
+  const [pausedTime, setPausedTime] = useState(0);
+  const [pauseStartTime, setPauseStartTime] = useState(null);
+  const [roundTimes, setRoundTimes] = useState([]); // Track time for each completed round
   
   // Artist names
   const realArtist = "Kendrick Lamar";
@@ -78,13 +84,28 @@ export default function SlideGameScreen() {
   const objectId = useRef(0);
   const playerXRef = useRef(screenWidth / 2 - 50); // Keep sync reference for collision detection (100px player)
   
-  // Batch state updates to reduce re-renders
-  const gameStateRef = useRef({
-    flowersCollected: 0,
-    catfishCount: 0,
-    flowersToImposter: 0,
-    flowersToArtist: 0,
-  });
+  // Calculate accurate total time played for the entire session
+  const getTotalTimePlayed = () => {
+    const currentRoundTime = getCurrentRoundTime();
+    return totalSessionTime + currentRoundTime;
+  };
+
+  // Calculate current round time based on timer usage (not elapsed time)
+  const getCurrentRoundTime = () => {
+    // Calculate how much of the 30-second timer was used
+    const timeUsed = 30 - timeLeft;
+    return Math.max(0, timeUsed);
+  };
+
+  // Format time for display
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    if (mins > 0) {
+      return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${secs}s`;
+  };
 
   // Initial game setup - start only when screen is focused
   useFocusEffect(
@@ -94,6 +115,11 @@ export default function SlideGameScreen() {
         setGameStarted(true);
         setIsGamePaused(false);
         setIsGameRunning(true);
+        const now = Date.now();
+        setGameStartTime(now); // Track when entire session starts
+        setRoundStartTime(now); // Track when this round starts
+        setPausedTime(0); // Reset paused time
+        setPauseStartTime(null); // Reset pause start time
         resetGame();
       });
       
@@ -114,25 +140,45 @@ export default function SlideGameScreen() {
   );
 
   const continueGame = () => {
+    // Add current round time to total session time before starting new round
+    const currentRoundTime = getCurrentRoundTime();
+    setTotalSessionTime(prev => prev + currentRoundTime);
+    
+    // Add the completed round time to our round times array
+    setRoundTimes(prev => [...prev, currentRoundTime]);
+    
     const newExtensionsUsed = extensionsUsed + 1;
     setExtensionsUsed(newExtensionsUsed);
     
-    // Add 30 seconds to current time instead of resetting
-    setTimeLeft(prev => prev + 30);
+    // ONLY reset catfish if they lost due to 3 catfish (not if timer ran out)
+    if (catfishCount >= 3) {
+      setCatfishCount(1); // Remove 2 catfish, leave them with 1 as penalty
+    }
+    // If they survived the full round, they keep all their catfish
+    
+    // ALWAYS set timer to exactly 30 seconds for new round (not adding to current time)
+    setTimeLeft(30);
     setIsGameRunning(true);
     setIsGamePaused(false);
     
-    // Check if this was the 3rd extension
+    // Start tracking new round time - reset pause tracking
+    setRoundStartTime(Date.now());
+    setPausedTime(0); // Reset paused time for new round
+    setPauseStartTime(null);
+    
+    // Check if this was the 3rd extension (final one)
     if (newExtensionsUsed >= 3) {
       // Show thank you message and end game after this extension
       setTimeout(() => {
         setIsGameRunning(false);
+        setIsGamePaused(true); // Pause the timer
+        const totalTimePlayed = getTotalTimePlayed();
         Alert.alert(
           'Thank You for Playing! 🌸',
-          'You\'ve used all 3 time extensions. Hope you enjoyed the game!',
+          `You've completed all 3 rounds!\n\nTotal time played: ${formatTime(totalTimePlayed)}\n\nHope you enjoyed the game!`,
           [
             { 
-              text: 'Play Again', 
+              text: 'End Game', 
               onPress: () => router.push('/(tabs)/'),
             }
           ],
@@ -148,12 +194,20 @@ export default function SlideGameScreen() {
     resetGame();
   };
 
-  // Optimized pause/resume
+  // Optimized pause/resume with accurate time tracking
   const togglePause = useCallback(() => {
     if (isGamePaused) {
+      // Resuming: add paused time to total
+      if (pauseStartTime) {
+        const pauseDuration = (Date.now() - pauseStartTime) / 1000;
+        setPausedTime(prev => prev + pauseDuration);
+        setPauseStartTime(null);
+      }
       setIsGamePaused(false);
       setIsGameRunning(true);
     } else {
+      // Pausing: record when pause started
+      setPauseStartTime(Date.now());
       setIsGamePaused(true);
       setIsGameRunning(false);
       Alert.alert(
@@ -161,6 +215,12 @@ export default function SlideGameScreen() {
         'Take a break!',
         [
           { text: 'Resume', onPress: () => {
+            // Resume and track pause time
+            if (pauseStartTime) {
+              const pauseDuration = (Date.now() - pauseStartTime) / 1000;
+              setPausedTime(prev => prev + pauseDuration);
+              setPauseStartTime(null);
+            }
             setIsGamePaused(false);
             setIsGameRunning(true);
           }}
@@ -168,7 +228,7 @@ export default function SlideGameScreen() {
         { cancelable: false }
       );
     }
-  }, [isGamePaused]);
+  }, [isGamePaused, pauseStartTime]);
 
   // Optimized pan responder with native driver support
   const panResponder = useRef(
@@ -195,13 +255,21 @@ export default function SlideGameScreen() {
     })
   ).current;
 
-  // Optimized game object creation
+  // Optimized game object creation with MUCH MORE NOTICEABLE speed progression
   const createGameObject = useCallback(() => {
     const id = objectId.current++;
     const isCatfish = Math.random() < 0.15;
     const objectSize = 50;
     const startX = Math.random() * (screenWidth - objectSize);
-    const speed = 2 + Math.random() * 3;
+    
+    // DRAMATICALLY INCREASED SPEED PROGRESSION - Much more noticeable!
+    // Round 1 (extensionsUsed = 0): speed 3-6 (average 4.5)
+    // Round 2 (extensionsUsed = 1): speed 7-12 (average 9.5) - MUCH FASTER!
+    // Round 3 (extensionsUsed = 2): speed 13-20 (average 16.5) - VERY FAST!
+    const baseSpeed = 3 + Math.random() * 3; // 3-6 range (increased from 2-5)
+    const speedMultiplier = extensionsUsed * 5; // 0, 5, 10 (increased from 0, 2, 4)
+    const additionalBoost = extensionsUsed * extensionsUsed * 2; // 0, 2, 8 (exponential boost!)
+    const speed = baseSpeed + speedMultiplier + additionalBoost;
     
     if (isCatfish) {
       return {
@@ -226,7 +294,7 @@ export default function SlideGameScreen() {
         collected: false,
       };
     }
-  }, []);
+  }, [extensionsUsed]); // Add extensionsUsed as dependency
 
   // Timer countdown with reduced frequency
   useEffect(() => {
@@ -278,9 +346,11 @@ export default function SlideGameScreen() {
   const endGame = () => {
     if (!isGameRunning) return;
     
+    // IMMEDIATELY stop ALL game interactions and timer
     setIsGameRunning(false);
-    setGameObjects([]);
+    setIsGamePaused(true);
     
+    // Clear timers immediately to stop any further time accumulation
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
@@ -290,56 +360,97 @@ export default function SlideGameScreen() {
       gameLoop.current = null;
     }
     
-    const didWin = flowersToArtist > flowersToImposter && catfishCount < 3;
+    // Calculate times AFTER stopping everything
+    const currentRoundTime = getCurrentRoundTime();
+    const finalTotalTime = totalSessionTime + currentRoundTime;
+    
+    // Calculate current round number (extensions used + 1)
+    const currentRoundNumber = extensionsUsed + 1;
+    
+    // Create final round times array including current round
+    const finalRoundTimes = [...roundTimes, currentRoundTime];
+    
+    // Capture final game state before any potential changes
+    const finalFlowersCollected = flowersCollected;
+    const finalFlowersToArtist = flowersToArtist;
+    const finalFlowersToImposter = flowersToImposter;
+    const finalCatfishCount = catfishCount;
+    
+    const didWin = finalFlowersToArtist > finalFlowersToImposter && finalCatfishCount < 3;
     
     let title, message, buttons;
     
-    if (catfishCount >= 3) {
+    if (finalCatfishCount >= 3) {
       title = '💔 Too Many Imposters!';
-      message = `You caught 3 catfish!\n\n${fakeArtist} stole all your flowers!\n\nFlowers collected: ${flowersCollected}\nFlowers to ${realArtist}: 0\nFlowers to ${fakeArtist}: ${flowersCollected}`;
+      message = `You caught 3 catfish!\n\n${fakeArtist} stole all your flowers!\n\nFlowers collected: ${finalFlowersCollected}\nFlowers to ${realArtist}: 0\nFlowers to ${fakeArtist}: ${finalFlowersCollected}\n\nTotal Rounds Played: ${currentRoundNumber}\nThis round: ${formatTime(currentRoundTime)}\nTotal time played: ${formatTime(finalTotalTime)}`;
     } else if (didWin) {
       title = '🌸 Victory! 🌸';
-      message = `You gave more flowers to ${realArtist}!\n\nFlowers collected: ${flowersCollected}\nFlowers to ${realArtist}: ${flowersToArtist}\nFlowers to ${fakeArtist}: ${flowersToImposter}`;
+      message = `You gave more flowers to ${realArtist}!\n\nFlowers collected: ${finalFlowersCollected}\nFlowers to ${realArtist}: ${finalFlowersToArtist}\nFlowers to ${fakeArtist}: ${finalFlowersToImposter}\n\nTotal Rounds Played: ${currentRoundNumber}\nThis round: ${formatTime(currentRoundTime)}\nTotal time played: ${formatTime(finalTotalTime)}`;
     } else {
       title = '😔 The Imposter Won';
-      message = `${fakeArtist} got more flowers!\n\nFlowers collected: ${flowersCollected}\nFlowers to ${realArtist}: ${flowersToArtist}\nFlowers to ${fakeArtist}: ${flowersToImposter}`;
+      message = `${fakeArtist} got more flowers!\n\nFlowers collected: ${finalFlowersCollected}\nFlowers to ${realArtist}: ${finalFlowersToArtist}\nFlowers to ${fakeArtist}: ${finalFlowersToImposter}\n\nTotal Rounds Played: ${currentRoundNumber}\nThis round: ${formatTime(currentRoundTime)}\nTotal time played: ${formatTime(finalTotalTime)}`;
     }
     
     // Different button options based on extensions used
-    if (extensionsUsed >= 3) {
+    if (extensionsUsed >= 2) {
+      // After 2nd extension (3rd round), show thank you message
       buttons = [
         { 
-          text: 'Home', 
-          onPress: () => router.push('/(tabs)/'),
-        },
-        { 
-          text: 'Play Again', 
+          text: 'End Game', 
           onPress: () => {
-            resetGame();
-            setIsGameRunning(true);
-          }
+            // Clear any remaining objects before going home
+            setGameObjects([]);
+            router.push('/(tabs)/');
+          },
         }
       ];
+      
+      // Override the message for the final round
+      title = 'Max Rounds Reached\nThank You for Playing! 🌸';
+      
+      // Create round breakdown string
+      let roundBreakdown = '';
+      finalRoundTimes.forEach((time, index) => {
+        roundBreakdown += `Round ${index + 1}: ${formatTime(time)}\n`;
+      });
+      
+      message = `You've completed all 3 rounds!\n\nFinal Stats:\nFlowers collected: ${finalFlowersCollected}\nFlowers to ${realArtist}: ${finalFlowersToArtist}\nFlowers to ${fakeArtist}: ${finalFlowersToImposter}\n\nTotal Rounds Played: ${currentRoundNumber}\nThis round: ${formatTime(currentRoundTime)}\nTotal time played: ${formatTime(finalTotalTime)}\n\n${roundBreakdown}\nHope you enjoyed the game!`;
     } else {
+      const roundNumber = extensionsUsed + 1; // Current round (1, 2, or 3)
+      const roundsLeft = 2 - extensionsUsed; // Rounds remaining (2, 1, or 0)
+      
       buttons = [
         { 
-          text: 'Home', 
-          onPress: () => router.push('/(tabs)/'),
+          text: 'Go Home', 
+          onPress: () => {
+            // Clear any remaining objects before going home
+            setGameObjects([]);
+            router.push('/(tabs)/');
+          },
           style: 'cancel'
         },
         { 
-          text: `Continue (+30s) [${3 - extensionsUsed} left]`, 
-          onPress: continueGame
+          text: `Another Round (+30s) [${roundsLeft} left]`, 
+          onPress: () => {
+            // Resume the game when continue is pressed
+            setIsGamePaused(false);
+            continueGame();
+          }
         },
         { 
-          text: 'Play Again', 
+          text: 'Restart Game', 
           onPress: () => {
+            // Reset and restart the game directly (stay on game screen)
             resetGame();
             setIsGameRunning(true);
+            setIsGamePaused(false);
           }
         }
       ];
     }
+    
+    // Clear falling objects immediately to stop visual distractions
+    setGameObjects([]);
     
     Alert.alert(title, message, buttons, { cancelable: false });
   };
@@ -361,8 +472,9 @@ export default function SlideGameScreen() {
         setGameObjects(prevObjects => {
           let newObjects = [...prevObjects];
           
-          // Create new objects less frequently to reduce load
-          if (Math.random() < 0.02) { // Reduced from 0.03
+          // Create new objects with INCREASED SPAWN RATE for higher rounds
+          const spawnRate = 0.02 + (extensionsUsed * 0.015); // Round 1: 0.02, Round 2: 0.035, Round 3: 0.05
+          if (Math.random() < spawnRate) {
             newObjects.push(createGameObject());
           }
 
@@ -382,7 +494,8 @@ export default function SlideGameScreen() {
             const objectLeft = updatedObj.x;
             const objectRight = updatedObj.x + objectSize;
             
-            if (!obj.collected &&
+            // Collision detection using ref values - ONLY if game is still running
+            if (!obj.collected && isGameRunning && !isGamePaused &&
                 objectRight > playerLeft - 10 &&
                 objectLeft < playerRight + 10 &&
                 objectBottom > playerTop - 10 &&
@@ -430,6 +543,13 @@ export default function SlideGameScreen() {
     setFlowersToArtist(0);
     setTimeLeft(30);
     setExtensionsUsed(0); // Reset extensions when starting new game
+    setRoundTimes([]); // Reset round times array
+    const now = Date.now();
+    setGameStartTime(now); // Reset session start time
+    setRoundStartTime(now); // Reset round start time
+    setTotalSessionTime(0); // Reset total session time
+    setPausedTime(0); // Reset paused time
+    setPauseStartTime(null); // Reset pause start time
     setIsGamePaused(false);
     const initialX = screenWidth / 2 - 50; // Adjusted for smaller player (100px)
     playerPosition.setValue(initialX);
@@ -520,25 +640,16 @@ export default function SlideGameScreen() {
         />
       </TouchableOpacity>
 
-      {/* Top left UI - Timer and Catfish */}
-      <View style={styles.topLeftUI}>
-        <ThemedText style={styles.timer}>
-          Time: {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
-        </ThemedText>
-        <View style={styles.catfishDisplay}>
-          {catfishArray.map(index => (
-            <View key={index} style={styles.catfishIcon}>
-              <Catfish size={35} />
-            </View>
-          ))}
-        </View>
-      </View>
-
-      {/* Center UI - Flower distribution */}
+      {/* Reorganized Center UI */}
       <ThemedView style={styles.centerUI}>
         <ThemedText style={styles.artistName}>
           For: {realArtist}
         </ThemedText>
+        
+        <ThemedText style={styles.totalFlowers}>
+          Total Collected: {flowersCollected}
+        </ThemedText>
+        
         <View style={styles.scoreContainer}>
           <View style={styles.scoreBox}>
             <ThemedText style={[styles.scoreLabel, { color: '#4CAF50' }]}>
@@ -557,8 +668,19 @@ export default function SlideGameScreen() {
             </ThemedText>
           </View>
         </View>
-        <ThemedText style={styles.totalFlowers}>
-          Total Collected: {flowersCollected}
+        
+        <View style={styles.catfishRow}>
+          <View style={styles.catfishDisplay}>
+            {catfishArray.map(index => (
+              <View key={index} style={styles.catfishIcon}>
+                <Catfish size={35} />
+              </View>
+            ))}
+          </View>
+        </View>
+        
+        <ThemedText style={styles.timer}>
+          Time: {timeLeft >= 60 ? Math.floor(timeLeft / 60) + ':' + (timeLeft % 60).toString().padStart(2, '0') : timeLeft + 's'}
         </ThemedText>
       </ThemedView>
     </ThemedView>
@@ -610,31 +732,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  topLeftUI: {
-    position: 'absolute',
-    top: Platform.select({ ios: 60, android: 40, default: 50 }),
-    left: 20,
-    zIndex: 1000,
-  },
-  timer: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 10,
-    textShadowColor: 'rgba(0, 0, 0, 0.75)',
-    textShadowOffset: { width: -1, height: 1 },
-    textShadowRadius: 10,
-  },
-  catfishDisplay: {
-    flexDirection: 'row',
-    gap: 5,
-  },
-  catfishIcon: {
-    opacity: 0.9,
-  },
   centerUI: {
     position: 'absolute',
-    top: Platform.select({ ios: 50, android: 30, default: 40 }),
+    top: Platform.select({ ios: 70, android: 50, default: 60 }), // Moved down from top
     left: 0,
     right: 0,
     alignItems: 'center',
@@ -645,15 +745,24 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#FFFFFF',
-    marginBottom: 10,
+    marginBottom: 12, // Increased spacing
     textShadowColor: 'rgba(0, 0, 0, 0.75)',
     textShadowOffset: { width: -1, height: 1 },
     textShadowRadius: 10,
   },
+  totalFlowers: {
+    fontSize: 16, // Made larger and more prominent
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 15,
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: -1, height: 1 },
+    textShadowRadius: 5,
+  },
   scoreContainer: {
     flexDirection: 'row',
     gap: 30,
-    marginBottom: 10,
+    marginBottom: 15, // Increased spacing
   },
   scoreBox: {
     alignItems: 'center',
@@ -667,9 +776,26 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
   },
-  totalFlowers: {
-    fontSize: 14,
+  catfishRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 15,
+    justifyContent: 'center',
+    minHeight: 35, // Reserve space even when no catfish
+  },
+  catfishDisplay: {
+    flexDirection: 'row',
+    gap: 5,
+  },
+  catfishIcon: {
+    opacity: 0.9,
+  },
+  timer: {
+    fontSize: 20, // Made slightly smaller since it's moved
+    fontWeight: 'bold',
     color: '#FFFFFF',
-    opacity: 0.8,
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: -1, height: 1 },
+    textShadowRadius: 10,
   },
 });
