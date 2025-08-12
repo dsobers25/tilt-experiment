@@ -12,47 +12,21 @@ import {
   InteractionManager,
 } from 'react-native';
 import { Rose, Sunflower, Tulip, Daisy, CherryBlossom, flowerTypes, getRandomFlower } from '@/components/ui/Flowers';
+import { Catfish } from '@/components/ui/Fish';
 import Svg, { Path, Circle, Ellipse } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
+import { getSelectedArtist } from './explore'; // Import the selected artist getter
 
 import { ThemedText } from '../../components/ThemedText';
 import { ThemedView } from '../../components/ThemedView';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
-// Catfish SVG Component
-const Catfish = ({ size = 50 }) => (
-  <Svg width={size} height={size} viewBox="0 0 30 30">
-    {/* Main body */}
-    <Ellipse cx="15" cy="15" rx="10" ry="6" fill="#4A5568" />
-    <Ellipse cx="15" cy="15" rx="9" ry="5" fill="#718096" />
-    
-    {/* Tail fin */}
-    <Path d="M5 15 L1 11 L1 19 Z" fill="#2D3748" />
-    
-    {/* Top fin */}
-    <Path d="M15 9 L13 6 L17 6 Z" fill="#2D3748" />
-    
-    {/* Bottom fins */}
-    <Path d="M10 18 L8 20 L11 19 Z" fill="#2D3748" />
-    <Path d="M20 18 L19 19 L22 20 Z" fill="#2D3748" />
-    
-    {/* Whiskers */}
-    <Path d="M24 13 Q28 11 30 12" stroke="#1A202C" strokeWidth="0.5" fill="none" />
-    <Path d="M24 17 Q28 19 30 18" stroke="#1A202C" strokeWidth="0.5" fill="none" />
-    <Path d="M24 15 Q28 15 30 15" stroke="#1A202C" strokeWidth="0.5" fill="none" />
-    
-    {/* Eye */}
-    <Circle cx="21" cy="14" r="1.5" fill="#FFFFFF" />
-    <Circle cx="21.5" cy="14" r="0.8" fill="#000000" />
-    
-    {/* Mouth */}
-    <Path d="M24 16 Q22 17 20 16" stroke="#1A202C" strokeWidth="0.5" fill="none" />
-  </Svg>
-);
-
 export default function SlideGameScreen() {
+  // Get selected artist
+  const selectedArtist = getSelectedArtist();
+  
   const [gameObjects, setGameObjects] = useState([]);
   const [isGameRunning, setIsGameRunning] = useState(false);
   const [isGamePaused, setIsGamePaused] = useState(false);
@@ -71,9 +45,9 @@ export default function SlideGameScreen() {
   const [pauseStartTime, setPauseStartTime] = useState(null);
   const [roundTimes, setRoundTimes] = useState([]); // Track time for each completed round
   
-  // Artist names
-  const realArtist = "Kendrick Lamar";
-  const fakeArtist = "Kendrick Kumar";
+  // Artist names - use selected artist or defaults
+  const realArtist = selectedArtist ? selectedArtist.name : "Kendrick Lamar";
+  const fakeArtist = selectedArtist ? `Fake ${selectedArtist.name}` : "Kendrick Kumar";
   
   // Use native driver for player position - runs on UI thread
   const playerPosition = useRef(new Animated.Value(screenWidth / 2 - 50)).current; // Adjusted for 100px player
@@ -83,6 +57,24 @@ export default function SlideGameScreen() {
   const timerRef = useRef(null);
   const objectId = useRef(0);
   const playerXRef = useRef(screenWidth / 2 - 50); // Keep sync reference for collision detection (100px player)
+  
+  // Check if artist is selected on component mount
+  useEffect(() => {
+    if (!selectedArtist) {
+      Alert.alert(
+        'No Artist Selected',
+        'Please select an artist first to play the game.',
+        [
+          {
+            text: 'Select Artist',
+            onPress: () => router.push('/(tabs)/explore')
+          }
+        ],
+        { cancelable: false }
+      );
+      return;
+    }
+  }, [selectedArtist]);
   
   // Calculate accurate total time played for the entire session
   const getTotalTimePlayed = () => {
@@ -110,6 +102,9 @@ export default function SlideGameScreen() {
   // Initial game setup - start only when screen is focused
   useFocusEffect(
     useCallback(() => {
+      // Only start if artist is selected
+      if (!selectedArtist) return;
+      
       // Use InteractionManager to defer game start until after animations
       InteractionManager.runAfterInteractions(() => {
         setGameStarted(true);
@@ -136,7 +131,7 @@ export default function SlideGameScreen() {
         setIsGameRunning(false);
         setGameObjects([]);
       };
-    }, [])
+    }, [selectedArtist])
   );
 
   const continueGame = () => {
@@ -175,7 +170,7 @@ export default function SlideGameScreen() {
         const totalTimePlayed = getTotalTimePlayed();
         Alert.alert(
           'Thank You for Playing! 🌸',
-          `You've completed all 3 rounds!\n\nTotal time played: ${formatTime(totalTimePlayed)}\n\nHope you enjoyed the game!`,
+          `You've completed all 3 rounds with ${realArtist}!\n\nTotal time played: ${formatTime(totalTimePlayed)}\n\nHope you enjoyed giving flowers to ${realArtist}!`,
           [
             { 
               text: 'End Game', 
@@ -212,7 +207,7 @@ export default function SlideGameScreen() {
       setIsGameRunning(false);
       Alert.alert(
         'Game Paused',
-        'Take a break!',
+        `Take a break from collecting flowers for ${realArtist}!`,
         [
           { text: 'Resume', onPress: () => {
             // Resume and track pause time
@@ -228,7 +223,7 @@ export default function SlideGameScreen() {
         { cancelable: false }
       );
     }
-  }, [isGamePaused, pauseStartTime]);
+  }, [isGamePaused, pauseStartTime, realArtist]);
 
   // Optimized pan responder with native driver support
   const panResponder = useRef(
@@ -426,7 +421,7 @@ export default function SlideGameScreen() {
         roundBreakdown += `Round ${index + 1}: ${formatTime(time)}\n`;
       });
       
-      message = `${gameResultMessage}Thank You for Playing! 🌸\n\nYou've completed all 3 rounds!\n\nFinal Stats:\nFlowers collected: ${finalFlowersCollected}\nFlowers to ${realArtist}: ${finalFlowersToArtist}\nFlowers to ${fakeArtist}: ${finalFlowersToImposter}\n\nTotal Rounds Played: ${currentRoundNumber}\nThis round: ${formatTime(currentRoundTime)}\nTotal time played: ${formatTime(finalTotalTime)}\n\n${roundBreakdown}\nHope you enjoyed the game!`;
+      message = `${gameResultMessage}Thank You for Playing with ${realArtist}! 🌸\n\nYou've completed all 3 rounds!\n\nFinal Stats:\nFlowers collected: ${finalFlowersCollected}\nFlowers to ${realArtist}: ${finalFlowersToArtist}\nFlowers to ${fakeArtist}: ${finalFlowersToImposter}\n\nTotal Rounds Played: ${currentRoundNumber}\nThis round: ${formatTime(currentRoundTime)}\nTotal time played: ${formatTime(finalTotalTime)}\n\n${roundBreakdown}\nHope you enjoyed giving flowers to ${realArtist}!`;
     } else {
       const roundNumber = extensionsUsed + 1; // Current round (1, 2, or 3)
       const roundsLeft = 2 - extensionsUsed; // Rounds remaining (2, 1, or 0)
@@ -606,6 +601,23 @@ export default function SlideGameScreen() {
   // Create array for catfish display
   const catfishArray = Array.from({ length: catfishCount }, (_, i) => i);
 
+  // Don't render game if no artist selected
+  if (!selectedArtist) {
+    return (
+      <ThemedView style={styles.container}>
+        <View style={styles.noArtistContainer}>
+          <ThemedText style={styles.noArtistText}>Please select an artist first!</ThemedText>
+          <TouchableOpacity 
+            style={styles.selectArtistButton} 
+            onPress={() => router.push('/(tabs)/explore')}
+          >
+            <ThemedText style={styles.selectArtistButtonText}>Select Artist</ThemedText>
+          </TouchableOpacity>
+        </View>
+      </ThemedView>
+    );
+  }
+
   if (!gameStarted) {
     return <ThemedView style={styles.container} />;
   }
@@ -618,7 +630,7 @@ export default function SlideGameScreen() {
           <FallingObject key={obj.id} obj={obj} />
         ))}
 
-        {/* Player square with native driver animation */}
+        {/* Player square with native driver animation - now shows selected artist image */}
         <Animated.View
           style={[
             styles.player,
@@ -632,7 +644,7 @@ export default function SlideGameScreen() {
           renderToHardwareTextureAndroid={true} // Optimize rendering on Android
         >
           <Image 
-            source={require('@/assets/images/kdot_pic_00.jpg')}
+            source={{ uri: selectedArtist.imageUrl }}
             style={styles.playerImage}
             resizeMode="cover"
           />
@@ -665,7 +677,7 @@ export default function SlideGameScreen() {
         <View style={styles.scoreContainer}>
           <View style={styles.scoreBox}>
             <ThemedText style={[styles.scoreLabel, { color: '#4CAF50' }]}>
-              Real Artist
+              Real {realArtist}
             </ThemedText>
             <ThemedText style={[styles.scoreValue, { color: '#4CAF50' }]}>
               {flowersToArtist} 🌸
@@ -726,6 +738,7 @@ const styles = StyleSheet.create({
   playerImage: {
     width: '100%',
     height: '100%',
+    borderRadius: 12,
   },
   gameObject: {
     position: 'absolute',
@@ -809,5 +822,28 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0, 0, 0, 0.75)',
     textShadowOffset: { width: -1, height: 1 },
     textShadowRadius: 10,
+  },
+  noArtistContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#001122',
+  },
+  noArtistText: {
+    fontSize: 20,
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 30,
+  },
+  selectArtistButton: {
+    backgroundColor: '#00aaff',
+    paddingHorizontal: 30,
+    paddingVertical: 15,
+    borderRadius: 25,
+  },
+  selectArtistButtonText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
 });
