@@ -15,6 +15,7 @@ import {
 import { router } from 'expo-router';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
+import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 
 const { width: screenWidth } = Dimensions.get('window');
@@ -342,6 +343,10 @@ export default function ExploreScreen() {
     router.push('/(tabs)/game');
   };
 
+  const handleGoBack = () => {
+    router.push('/(tabs)/');
+  };
+
   const renderArtist = ({ item }: { item: Artist }) => {
     const isSelected = selectedArtist?.id === item.id;
     
@@ -379,6 +384,18 @@ export default function ExploreScreen() {
             Select the artist that inspired you
           </ThemedText>
         </View>
+        
+        {/* Back Button */}
+        <TouchableOpacity 
+          style={styles.backButton} 
+          onPress={handleGoBack}
+        >
+          <Ionicons 
+            name="arrow-back" 
+            size={28} 
+            color="#FFFFFF" 
+          />
+        </TouchableOpacity>
       </View>
 
       {/* Search Bar */}
@@ -493,6 +510,15 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#FFFFFF',
     opacity: 0.8,
+  },
+  backButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 25,
+    width: 50,
+    height: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 15,
   },
   searchContainer: {
     paddingHorizontal: 20,

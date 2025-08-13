@@ -190,26 +190,28 @@ export default function SlideGameScreen() {
   };
 
   // Optimized pause/resume with accurate time tracking
-  const togglePause = useCallback(() => {
-    if (isGamePaused) {
-      // Resuming: add paused time to total
-      if (pauseStartTime) {
-        const pauseDuration = (Date.now() - pauseStartTime) / 1000;
-        setPausedTime(prev => prev + pauseDuration);
-        setPauseStartTime(null);
-      }
-      setIsGamePaused(false);
-      setIsGameRunning(true);
-    } else {
-      // Pausing: record when pause started
-      setPauseStartTime(Date.now());
-      setIsGamePaused(true);
-      setIsGameRunning(false);
-      Alert.alert(
-        'Game Paused',
-        `Take a break from collecting flowers for ${realArtist}!`,
-        [
-          { text: 'Resume', onPress: () => {
+const togglePause = useCallback(() => {
+  if (isGamePaused) {
+    // Resuming: add paused time to total
+    if (pauseStartTime) {
+      const pauseDuration = (Date.now() - pauseStartTime) / 1000;
+      setPausedTime(prev => prev + pauseDuration);
+      setPauseStartTime(null);
+    }
+    setIsGamePaused(false);
+    setIsGameRunning(true);
+  } else {
+    // Pausing: record when pause started
+    setPauseStartTime(Date.now());
+    setIsGamePaused(true);
+    setIsGameRunning(false);
+    Alert.alert(
+      'Game Paused',
+      `Take a break from collecting flowers for ${realArtist}!`,
+      [
+        { 
+          text: 'Resume', 
+          onPress: () => {
             // Resume and track pause time
             if (pauseStartTime) {
               const pauseDuration = (Date.now() - pauseStartTime) / 1000;
@@ -218,12 +220,34 @@ export default function SlideGameScreen() {
             }
             setIsGamePaused(false);
             setIsGameRunning(true);
-          }}
-        ],
-        { cancelable: false }
-      );
-    }
-  }, [isGamePaused, pauseStartTime, realArtist]);
+          }
+        },
+        { 
+          text: 'Restart', 
+          onPress: () => {
+            // Clear any remaining objects and reset the game
+            setGameObjects([]);
+            resetGame();
+            setIsGameRunning(true);
+            setIsGamePaused(false);
+          }
+        },
+        { 
+          text: 'Quit', 
+          onPress: () => {
+            // Clear any remaining objects and go back to home screen
+            setGameObjects([]);
+            setIsGameRunning(false);
+            setIsGamePaused(false);
+            router.push('/(tabs)/');
+          },
+          style: 'destructive'
+        }
+      ],
+      { cancelable: false }
+    );
+  }
+}, [isGamePaused, pauseStartTime, realArtist, router]);
 
   // Optimized pan responder with native driver support
   const panResponder = useRef(
